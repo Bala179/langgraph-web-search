@@ -1,0 +1,4 @@
+langchain[openai]
+langgraph
+langsmith
+langchain_tavily
