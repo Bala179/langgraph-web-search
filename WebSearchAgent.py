@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 from typing import Annotated, Sequence
+from fastapi import FastAPI
+from pydantic import BaseModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
@@ -10,6 +12,13 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 # Load API Keys
 load_dotenv()
+
+# Load FastAPI
+app = FastAPI()
+
+# Request model
+class SearchRequest(BaseModel):
+    search_input: str
 
 # Define state class
 class AgentState(TypedDict):
@@ -24,6 +33,7 @@ llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
 
 # Chatbot node
 def chatbot(state: AgentState) -> AgentState:
+    """Invoke the LLM with the user input."""
     system_prompt = SystemMessage(content=
         "You are my AI assistant, please answer my query to the best of your ability."
     )
@@ -49,27 +59,27 @@ graph_builder.add_edge(TOOL_NODE, CHATBOT_NODE)
 graph_builder.add_edge(START, CHATBOT_NODE)
 graph = graph_builder.compile()
 
-# Conversation with AI agent
-conversation_history = []
+app.conversation_history = []
 MAX_HISTORY_LENGTH = 20
 
-while True:
-    try:
-        user_input = input("Type a message for the AI agent: ")
-        if user_input.lower() in ["quit", "exit", "q"]:
-            print("Goodbye!")
-            break
-    except:
-        user_input = "What do you know about LangGraph?"
-        print("Type a message for the AI agent: " + user_input)
-        break
+@app.get("/")
+def read_root():
+    """Sample endpoint to test if the server is running."""
+    return {"message": "Hello, WebSearchAgent is live!"}
 
-    conversation_history.append(HumanMessage(content=user_input))
-    if len(conversation_history) > MAX_HISTORY_LENGTH:
-        conversation_history = conversation_history[-MAX_HISTORY_LENGTH:]
+# Conversation with AI agent
+@app.post("/web_search")
+async def web_search(request: SearchRequest):
+    """Using OpenAI, generate an answer to the user's query using Tavily if necessary."""
 
-    result = graph.invoke({"messages": conversation_history})
+    app.conversation_history.append(HumanMessage(content=request.search_input))
+    if len(app.conversation_history) > MAX_HISTORY_LENGTH:
+        app.conversation_history = app.conversation_history[-MAX_HISTORY_LENGTH:]
+
+    result = graph.invoke({"messages": app.conversation_history})
     
-    conversation_history = result['messages']
-    if len(conversation_history) > MAX_HISTORY_LENGTH:
-        conversation_history = conversation_history[-MAX_HISTORY_LENGTH:]
+    app.conversation_history = result['messages']
+    if len(app.conversation_history) > MAX_HISTORY_LENGTH:
+        app.conversation_history = app.conversation_history[-MAX_HISTORY_LENGTH:]
+
+    return result['messages'][-1]

@@ -3,3 +3,6 @@ langgraph
 langsmith
 langchain_tavily
 dotenv
+fastapi
+uvicorn
+pydantic
