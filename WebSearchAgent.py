@@ -13,19 +13,21 @@ load_dotenv()
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
-graph_builder = StateGraph(AgentState)
-
 search_tool = TavilySearch(max_results=2)
 tools = [search_tool]
 
 llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
 
 def chatbot(state: AgentState) -> AgentState:
-    return {"messages": [llm.invoke(state["messages"]) ]}
+    system_prompt = SystemMessage(content=
+        "You are my AI assistant, please answer my query to the best of your ability."
+    )
+    return {"messages": [llm.invoke([system_prompt] + state["messages"]) ]}
 
 CHATBOT_NODE = "chatbot"
 TOOL_NODE = "tools"
 
+graph_builder = StateGraph(AgentState)
 graph_builder.add_node(CHATBOT_NODE, chatbot)
 
 tool_node = ToolNode(tools=[search_tool])
