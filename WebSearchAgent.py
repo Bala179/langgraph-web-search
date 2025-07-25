@@ -1,6 +1,10 @@
+import json
+import logging
+import pathlib
 from dotenv import load_dotenv
 from typing import Annotated, Sequence
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from typing_extensions import TypedDict
@@ -13,8 +17,21 @@ from langgraph.prebuilt import ToolNode, tools_condition
 # Load API Keys
 load_dotenv()
 
+# FastAPI lifespan to configure logging
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    config_file = pathlib.Path("logging_configs/config.json")
+    with open(config_file) as f_in:
+        config = json.load(f_in)
+
+    logging.config.dictConfig(config)
+    yield
+
+# Create logger object
+logger = logging.getLogger('web-search-agent')
+
 # Load FastAPI
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # Request model
 class SearchRequest(BaseModel):
@@ -39,8 +56,6 @@ def chatbot(state: AgentState) -> AgentState:
     )
     response = llm.invoke([system_prompt] + state["messages"]) 
     state['messages'] = AIMessage(content=response.content)
-
-    print(f"\nAI: {response.content}")
 
     return state
 
@@ -76,8 +91,15 @@ async def web_search(request: SearchRequest):
     if len(app.conversation_history) > MAX_HISTORY_LENGTH:
         app.conversation_history = app.conversation_history[-MAX_HISTORY_LENGTH:]
 
-    result = graph.invoke({"messages": app.conversation_history})
-    
+    stream_list = list(graph.stream({"messages": app.conversation_history}, stream_mode="values"))
+    for s in stream_list:
+        message = s["messages"][-1]
+        if isinstance(message, tuple):
+            logger.info('\n' + message)
+        else:
+            logger.info('\n' + message.pretty_repr())
+        
+    result = stream_list[-1]
     app.conversation_history = result['messages']
     if len(app.conversation_history) > MAX_HISTORY_LENGTH:
         app.conversation_history = app.conversation_history[-MAX_HISTORY_LENGTH:]
