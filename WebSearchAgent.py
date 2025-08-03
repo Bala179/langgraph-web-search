@@ -1,18 +1,19 @@
 import json
 import logging
 import pathlib
+import datetime
 from dotenv import load_dotenv
 from typing import Annotated, Sequence
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.agents import create_openai_tools_agent, AgentExecutor
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
-from langgraph.graph import StateGraph, START
 from langchain_tavily import TavilySearch
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import ToolNode, tools_condition
+from langchain.chat_models import init_chat_model
 
 # Load API Keys
 load_dotenv()
@@ -42,37 +43,32 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 # Tavily search tool
-search_tool = TavilySearch(max_results=2)
-tools = [search_tool]
+tavily_search_tool = TavilySearch(
+    max_results=5,
+    topic="general",
+)
 
-# OpenAI model with tools bound
-llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
+# OpenAI model
+llm = init_chat_model(model="gpt-4o", model_provider="openai", temperature=0)
 
-# Chatbot node
-def chatbot(state: AgentState) -> AgentState:
-    """Invoke the LLM with the user input."""
-    system_prompt = SystemMessage(content=
-        "You are my AI assistant, please answer my query to the best of your ability."
-    )
-    response = llm.invoke([system_prompt] + state["messages"]) 
-    state['messages'] = AIMessage(content=response.content)
+# Set up Prompt with 'agent_scratchpad'
+today = datetime.datetime.today().strftime("%D")
+prompt = ChatPromptTemplate.from_messages([
+    ("system", f"""You are a helpful reaserch assistant, you will be given a query and you will need to
+    search the web for the most relevant information. The date today is {today}."""),
+    MessagesPlaceholder(variable_name="messages"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),  # Required for tool calls
+])
 
-    return state
+# Create an agent that can use tools
+agent = create_openai_tools_agent(
+    llm=llm,
+    tools=[tavily_search_tool],
+    prompt=prompt
+)
 
-# Build and compile graph
-CHATBOT_NODE = "chatbot"
-TOOL_NODE = "tools"
-
-graph_builder = StateGraph(AgentState)
-graph_builder.add_node(CHATBOT_NODE, chatbot)
-
-tool_node = ToolNode(tools=[search_tool])
-graph_builder.add_node(TOOL_NODE, tool_node)
-
-graph_builder.add_conditional_edges(CHATBOT_NODE, tools_condition)
-graph_builder.add_edge(TOOL_NODE, CHATBOT_NODE)
-graph_builder.add_edge(START, CHATBOT_NODE)
-graph = graph_builder.compile()
+# Create an Agent Executor to handle tool execution
+agent_executor = AgentExecutor(agent=agent, tools=[tavily_search_tool], verbose=True)
 
 app.conversation_history = []
 MAX_HISTORY_LENGTH = 20
@@ -91,7 +87,7 @@ async def web_search(request: SearchRequest):
     if len(app.conversation_history) > MAX_HISTORY_LENGTH:
         app.conversation_history = app.conversation_history[-MAX_HISTORY_LENGTH:]
 
-    stream_list = list(graph.stream({"messages": app.conversation_history}, stream_mode="values"))
+    stream_list = list(agent_executor.stream({"messages": app.conversation_history}))
     for s in stream_list:
         message = s["messages"][-1]
         if isinstance(message, tuple):
