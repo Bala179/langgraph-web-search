@@ -1,17 +1,21 @@
+"""
+References: 
+https://docs.tavily.com/documentation/integrations/langchain
+https://dev.to/anuragkanojiya/how-to-use-langgraph-within-a-fastapi-backend-amm
+https://www.youtube.com/watch?v=9L77QExPmI0
+"""
+
 import json
 import logging
 import pathlib
 import datetime
 from dotenv import load_dotenv
-from typing import Annotated, Sequence
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import create_openai_tools_agent, AgentExecutor
-from typing_extensions import TypedDict
-from langgraph.graph.message import add_messages
 from langchain_tavily import TavilySearch
 from langchain.chat_models import init_chat_model
 
@@ -37,10 +41,6 @@ app = FastAPI(lifespan=lifespan)
 # Request model
 class SearchRequest(BaseModel):
     search_input: str
-
-# Define state class
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
 
 # Tavily search tool
 tavily_search_tool = TavilySearch(
