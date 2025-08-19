@@ -18,6 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain_tavily import TavilySearch
 from langchain.chat_models import init_chat_model
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load API Keys
 load_dotenv()
@@ -37,6 +38,20 @@ logger = logging.getLogger('web-search-agent')
 
 # Load FastAPI
 app = FastAPI(lifespan=lifespan)
+
+# CORS
+origins = [
+    "http://localhost",
+    "http://localhost:4200",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Request model
 class SearchRequest(BaseModel):
